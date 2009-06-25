@@ -129,12 +129,12 @@ function mergeArray(first,second){
 
 
 /*
-* FancyFormPrototype 0.91
+* FancyFormPrototype 0.95
 * Prototype compatibility enhancements by
 * Jeremy Green, webeprint.com
 *
 * Adapted from  
-* FancyForm 0.91
+* FancyForm 0.95
 * By Vacuous Virtuoso, lipidity.com
 *
 * ---
@@ -144,7 +144,7 @@ function mergeArray(first,second){
 
 var FancyForm = {
 	start: function(elements, options){
-		FancyForm.runningInit = 1;
+		if(FancyForm.initing != undefined) return;
 		if($type(elements)!='array') elements = $$('input');
 		if(!options) options = [];
 		FancyForm.onclasses = ($type(options['onClasses']) == 'object') ? options['onClasses'] : {
@@ -170,109 +170,153 @@ var FancyForm = {
 		}
 		FancyForm.onSelect = $pick(options['onSelect'], function(el){});
 		FancyForm.onDeselect = $pick(options['onDeselect'], function(el){});
+		FancyForm.chks = [];
+		FancyForm.add(elements);
+		$$('form').each( function(x) {
+			x.observe('reset', function(a) {
+				window.setTimeout(function(){FancyForm.chks.each(function(x){FancyForm.update(x);x.inputElement.blur()})}, 200);
+			});
+		});
+	},
+	add: function(elements){
+		if($type(elements) == 'element')
+			elements = [elements];
+		FancyForm.initing = 1;
 		var keeps = [];
-		FancyForm.chks = elements.filter(function(chk){
-			chk = $(chk);
-			if( $type(chk) != 'element' ) return false;
-			if( chk.tagName.toLowerCase() == 'input' && (FancyForm.onclasses[chk.getAttribute('type')]) ){
-			    var el = chk.parentNode;
-			    Element.extend(el);
-			    if(el.getElementsBySelector('input')[0]==chk){
+
+		var newChks = elements.filter(function(chk){
+			if($type(chk) != 'element' || chk.inputElement || (chk.tagName.toLowerCase() == 'input' && chk.parentNode.inputElement))
+				return false;
+			if(chk.tagName.toLowerCase() == 'input' && (FancyForm.onclasses[chk.getAttribute('type')])){
+				var el = chk.parentNode;
+				if(el.getElementsBySelector('input')[0]==chk){
 					el.type = chk.getAttribute('type');
 					el.inputElement = chk;
 					this.push(el);
 				} else {
-					chk.observe('click',function(ev){ev.stopPropagation();})
+					chk.observe('click',function(f){
+						if(f.event.stopPropagation) f.event.stopPropagation();
+					});
 				}
-			} else if( chk.getElementsBySelector('input') && (chk.inputElement = chk.getElementsBySelector('input')[0]) && (FancyForm.onclasses[(chk.type = chk.inputElement.getAttribute('type'))]) ){
+			} else if((chk.inputElement = chk.getElementsBySelector('input')[0]) && (FancyForm.onclasses[(chk.type = chk.inputElement.getAttribute('type'))])){
 				return true;
 			}
 			return false;
 		}.bind(keeps));
-		FancyForm.chks = mergeArray(FancyForm.chks,keeps);
-		keeps = null;
-		FancyForm.chks.each(function(chk){
-			chk.inputElement.setStyle({position:'absolute'});
-			chk.inputElement.setStyle({left:'-9999px'});
-			chk.observe('selectStart', function(){})
-			chk.name = chk.inputElement.getAttribute('name');
-			if(chk.inputElement.checked) FancyForm.select(chk);
-			else FancyForm.deselect(chk);
-			chk.observe('click', function(e){
-				if(chk.inputElement.getAttribute('disabled')) return;
-				if ($type(e.preventDefault) == 'function')
-					e.preventDefault(true);
-				else if ($type(e.returnValue) == 'function')
-					e.returnValue(true);
-				if (!chk.hasClassName(FancyForm.onclasses[chk.type]))
-						FancyForm.select(chk);
-				else if(chk.type != 'radio')
-					FancyForm.deselect(chk);
-				FancyForm.focusing = 1;
-				chk.inputElement.focus();
-				FancyForm.focusing = 0;
+
+		newChks = mergeArray(newChks,keeps);
+		newChks.each(function(chk){
+			var c = chk.inputElement;
+			c.setStyle({position:'absolute'});
+			c.setStyle({left:'-9999px'});
+			chk.observe('selectStart', function(f){f.stop()});
+			chk.name = c.getAttribute('name');
+			FancyForm.update(chk);
+		});
+		newChks.each(function(chk){
+			var c = $(chk.inputElement);
+			chk.observe('click', function(f){
+				console.log('chk = ' + chk + ' and c = ' + c)				
+				f = Event.extend(f);
+				f.stop(); //f.type = 'prop';
+				//c.fire('click');
+				c.click();
+			        });
+			chk.observe('mousedown', function(f){
+				if($type(c.onmousedown) == 'function')
+					c.onmousedown();
+				f.preventDefault();
 			});
-			chk.observe('mousedown', function(e){
-				if ($type(e.preventDefault) == 'function')
-					e.preventDefault(true);
-				else if ($type(e.returnValue) == 'function')
-					e.returnValue(true);
+			chk.observe('mouseup', function(f){
+				if($type(c.onmouseup) == 'function')
+					c.onmouseup();
 			});
-			chk.inputElement.observe('focus', function(e){
-				if(!FancyForm.focusing) chk.setStyle({outline:'1px dotted'});
+			c.observe('focus', function(f){
+				if(FancyForm.focus)
+					chk.setStyle('outline', '1px dotted');
 			});
-			chk.inputElement.observe('blur', function(e){chk.setStyle({outline:'0'})});
+			c.observe('blur', function(f){
+				chk.setStyle('outline', 0);
+			});
+			c.observe('click', function(f){
+
+				if(f.stopPropagation) f.stopPropagation();
+				if(c.getAttribute('disabled')) // c.getStyle('position') != 'absolute'
+					return;
+				if (!chk.hasClassName(FancyForm.onclasses[chk.type])){
+					c.setAttribute('checked', 'checked');
+				}else if(chk.type != 'radio'){
+					c.setAttribute('checked', false);
+				}
+				if(f.type == 'prop')
+					FancyForm.focus = 0;
+				FancyForm.update(chk);
+				FancyForm.focus = 1;
+				if(f.type == 'prop' && !FancyForm.initing && $type(c.onclick) == 'function')
+					 c.onclick();
+			});
+			c.observe('mouseup', function(f){
+				if(f.stopPropagation) f.stopPropagation();
+			});
+			c.observe('mousedown', function(f){
+				if(f.stopPropagation) f.stopPropagation();
+			});
 			if(extraclass = FancyForm.extra[chk.type])
 				chk.addClassName(extraclass);
 			if(extraclass = FancyForm.extra['all'])
 				chk.addClassName(extraclass);
 		});
-		FancyForm.runningInit = 0;
+		FancyForm.chks = mergeArray(newChks,FancyForm.chks);
+		
+		FancyForm.initing = 0;
 	},
-	select: function(chk){
-	        chk = $(chk);
-		chk.inputElement.checked = 'checked';
-		chk.removeClassName(FancyForm.offclasses[chk.type]);
-		chk.addClassName(FancyForm.onclasses[chk.type]);
-		if (chk.type == 'radio'){
-			FancyForm.chks.each(function(other){
-				if (other.name != chk.name || other == chk) return;
-				FancyForm.deselect(other);
-			});
+	update: function(chk){
+		if(chk.inputElement.getAttribute('checked')=='checked') {
+			chk.removeClassName(FancyForm.offclasses[chk.type]);
+			chk.addClassName(FancyForm.onclasses[chk.type]);
+			if (chk.type == 'radio'){
+				FancyForm.chks.each(function(other){
+					if (other.name == chk.name && other != chk) {
+						other.inputElement.setAttribute('checked', false);
+						FancyForm.update(other);
+					}
+				});
+			}
+			if(extraclass = FancyForm.extra['on'])
+				chk.addClassName(extraclass);
+			if(extraclass = FancyForm.extra['off'])
+				chk.removeClassName(extraclass);
+			if(!FancyForm.initing)
+				FancyForm.onSelect(chk);
+		} else {
+			chk.removeClassName(FancyForm.onclasses[chk.type]);
+			chk.addClassName(FancyForm.offclasses[chk.type]);
+			if(extraclass = FancyForm.extra['off'])
+				chk.addClassName(extraclass);
+			if(extraclass = FancyForm.extra['on'])
+				chk.removeClassName(extraclass);
+			if(!FancyForm.initing)
+				FancyForm.onDeselect(chk);
 		}
-		if(extraclass = FancyForm.extra['on'])
-			chk.addClassName(extraclass);
-		if(extraclass = FancyForm.extra['off'])
-			chk.removeClassName(extraclass);
-		if(!FancyForm.runningInit)
-			FancyForm.onSelect(chk);
-	},
-	deselect: function(chk){
-		chk.inputElement.checked = false;
-		chk.removeClassName(FancyForm.onclasses[chk.type]);
-		chk.addClassName(FancyForm.offclasses[chk.type]);
-		if(extraclass = FancyForm.extra['off'])
-			chk.addClassName(extraclass);
-		if(extraclass = FancyForm.extra['on'])
-			chk.removeClassName(extraclass);
-		if(!FancyForm.runningInit)
-			FancyForm.onDeselect(chk);
+		if(!FancyForm.initing)
+			chk.inputElement.focus();
 	},
 	all: function(){
 		FancyForm.chks.each(function(chk){
-			FancyForm.select(chk);
+			chk.inputElement.setAttribute('checked', 'checked');
+			FancyForm.update(chk);
 		});
 	},
 	none: function(){
 		FancyForm.chks.each(function(chk){
-			FancyForm.deselect(chk);
+			chk.inputElement.setAttribute('checked', false);
+			FancyForm.update(chk);
 		});
 	}
 };
 
 
-/*
-window.addEvent('domready', function(){
-	alert('starting');
-	FancyForm.start();
-	});*/
+Event.observe(window, 'load', function() {
+  FancyForm.start();
+  });
+
